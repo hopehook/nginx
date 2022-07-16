@@ -372,6 +372,8 @@ ngx_http_init_connection(ngx_connection_t *c)
 }
 
 
+// 如果这个客户端连接 socket 上有数据到达的时候，就会进入到注册的 ngx_http_wait_request_handler 函数进行处理。
+// 后面就是 HTTP 的处理逻辑了。
 static void
 ngx_http_wait_request_handler(ngx_event_t *rev)
 {

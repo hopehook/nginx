@@ -182,20 +182,27 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
 
     ngx_process_slot = s;
 
-
+    // 创建子进程，父进程监听的 fd 也会被复制过去
+    //
+    // fork 调用的一个奇妙之处就是它仅仅被调用一次，却能够返回两次，它可能有三种不同的返回值：
+    //
+    // 在父进程中，fork 返回新创建 `子进程的进程ID`；
+    // 在子进程中，fork 返回0；
+    // 如果出现错误，fork 返回一个负值；
     pid = fork();
 
     switch (pid) {
 
-    case -1:
+    case -1: //出错了
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                       "fork() failed while spawning \"%s\"", name);
         ngx_close_channel(ngx_processes[s].channel, cycle->log);
         return NGX_INVALID_PID;
 
-    case 0:
+    case 0: //子进程创建成功
         ngx_parent = ngx_pid;
         ngx_pid = ngx_getpid();
+        // 子进程执行的是 proc = ngx_worker_process_cycle 函数
         proc(cycle, data);
         break;
 

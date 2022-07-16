@@ -403,6 +403,10 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
 }
 
 
+// 在这个函数中，遍历要监听的 socket。
+// 如果是启用了 REUSEPORT 配置，那先把 socket 设置上 SO_REUSEPORT 选项。
+// 然后接下来就是大家都熟悉的 bind 和 listen。
+// 所以，bind 和 listen 是在 Master 进程中完成的。
 ngx_int_t
 ngx_open_listening_sockets(ngx_cycle_t *cycle)
 {
@@ -427,6 +431,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
 
         /* for each listening socket */
 
+        // 要监听的 socket 对象
         ls = cycle->listening.elts;
         for (i = 0; i < cycle->listening.nelts; i++) {
 
@@ -486,7 +491,8 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
 
                 continue;
             }
-
+            
+            // 获取第i个socket
             s = ngx_socket(ls[i].sockaddr->sa_family, ls[i].type, 0);
 
             if (s == (ngx_socket_t) -1) {
@@ -600,7 +606,8 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
 
             ngx_log_debug2(NGX_LOG_DEBUG_CORE, log, 0,
                            "bind() %V #%d ", &ls[i].addr_text, s);
-
+            
+            //绑定
             if (bind(s, ls[i].sockaddr, ls[i].socklen) == -1) {
                 err = ngx_socket_errno;
 
@@ -654,6 +661,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
                 continue;
             }
 
+            //监听
             if (listen(s, ls[i].backlog) == -1) {
                 err = ngx_socket_errno;
 
@@ -1112,6 +1120,9 @@ ngx_get_connection(ngx_socket_t s, ngx_log_t *log)
 
     ngx_drain_connections((ngx_cycle_t *) ngx_cycle);
 
+    // free_connections 中的连接，对于 HTTP 服务来说，
+    // 会经过 ngx_http_init_connection 的初始化处理。
+    // 它会设置该连接读写事件的回调函数 c->read->handler 和 c->write->handler。
     c = ngx_cycle->free_connections;
 
     if (c == NULL) {

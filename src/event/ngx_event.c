@@ -190,7 +190,12 @@ ngx_module_t  ngx_event_core_module = {
     NGX_MODULE_V1_PADDING
 };
 
-
+// 在 ngx_process_events_and_timers 开头处，判断是否使用 accpet_mutext 锁。
+// 这是一个防止惊群的解决办法。如果使用的话，先调用 ngx_trylock_accept_mutex 获取锁，
+// 获取失败则直接返回，过段时间再来尝试。获取成功是则设置 NGX_POST_EVENTS 的标志位。
+//
+// 接下来调用 ngx_process_events 来处理各种网络和 timer 事件。
+// 对于 epoll 来说，这个函数就是对 epoll_wait 的封装。
 void
 ngx_process_events_and_timers(ngx_cycle_t *cycle)
 {
@@ -216,15 +221,18 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
 #endif
     }
 
+    // 防 accept 惊群锁
     if (ngx_use_accept_mutex) {
         if (ngx_accept_disabled > 0) {
             ngx_accept_disabled--;
 
         } else {
+            // 尝试获取锁，获取失败直接返回
             if (ngx_trylock_accept_mutex(cycle) == NGX_ERROR) {
                 return;
             }
 
+            // 获取锁成功，则设置 NGX_POST_EVENTS 标记。
             if (ngx_accept_mutex_held) {
                 flags |= NGX_POST_EVENTS;
 
@@ -245,6 +253,7 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
 
     delta = ngx_current_msec;
 
+    // 处理各种事件
     (void) ngx_process_events(cycle, timer, flags);
 
     delta = ngx_current_msec - delta;
@@ -655,6 +664,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
+    //调用模块的init，创建 epoll 对象
     for (m = 0; cycle->modules[m]; m++) {
         if (cycle->modules[m]->type != NGX_EVENT_MODULE) {
             continue;
@@ -780,6 +790,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
     /* for each listening socket */
 
+    // 获取自己监听的 sokcet，将它们都添加到 epoll 中
     ls = cycle->listening.elts;
     for (i = 0; i < cycle->listening.nelts; i++) {
 
@@ -789,6 +800,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         }
 #endif
 
+        //获取一个 ngx_connection_t
         c = ngx_get_connection(ls[i].fd, cycle->log);
 
         if (c == NULL) {
@@ -855,12 +867,14 @@ ngx_event_process_init(ngx_cycle_t *cycle)
             }
 
         } else {
+            //设置回调函数为 ngx_event_accept
             rev->handler = ngx_event_accept;
 
             if (ngx_use_accept_mutex) {
                 continue;
             }
-
+            
+            // ngx_add_event 就是一个抽象，对于 epoll 来说就是对 epoll_ctl 的封装而已。
             if (ngx_add_event(rev, NGX_READ_EVENT, 0) == NGX_ERROR) {
                 return NGX_ERROR;
             }

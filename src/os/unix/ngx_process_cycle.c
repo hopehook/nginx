@@ -70,6 +70,13 @@ static ngx_log_t        ngx_exit_log;
 static ngx_open_file_t  ngx_exit_log_file;
 
 
+// 在 ngx_master_process_cycle 中主要完成两件事。
+
+// 1. 启动 Worker 进程
+// 2. 将 Master 进程推入事件循环
+//
+// 注意：在创建 Worker 进程的时候，是通过 fork 系统调用让 Worker 进程完全复制自己的资源，
+// 包括 listen 状态的 socket 句柄。
 void
 ngx_master_process_cycle(ngx_cycle_t *cycle)
 {
@@ -136,6 +143,10 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
     sigio = 0;
     live = 1;
 
+    // 进入主循环, 等待接收各种信号
+    //  ngx_quit
+    //  ngx_reconfigure
+    //  ngx_restart
     for ( ;; ) {
         if (delay) {
             if (ngx_sigalrm) {
@@ -331,7 +342,8 @@ ngx_single_process_cycle(ngx_cycle_t *cycle)
     }
 }
 
-
+// 主进程在配置中读取到了 Worker 进程的数量 ccf->worker_processes。
+// 通过 ngx_start_worker_processes 来启动指定数量的 Worker。
 static void
 ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n, ngx_int_t type)
 {
@@ -341,6 +353,11 @@ ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n, ngx_int_t type)
 
     for (i = 0; i < n; i++) {
 
+        // 在调用 ngx_spawn_process 时的几个参数
+        //
+        // cycle：nginx 的核心数据结构
+        // ngx_worker_process_cycle：worker 进程的入口函数
+        // i: 当前 worker 的序号
         ngx_spawn_process(cycle, ngx_worker_process_cycle,
                           (void *) (intptr_t) i, "worker process", type);
 
@@ -703,10 +720,12 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
     ngx_process = NGX_PROCESS_WORKER;
     ngx_worker = worker;
 
+    // 2.2 Worker 进程初始化编译进来的各个模块
     ngx_worker_process_init(cycle, worker);
 
     ngx_setproctitle("worker process");
 
+    // 进入事件循环
     for ( ;; ) {
 
         if (ngx_exiting) {
@@ -718,6 +737,7 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
 
         ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "worker cycle");
 
+        // 2.3 进入 epollwait
         ngx_process_events_and_timers(cycle);
 
         if (ngx_terminate) {
@@ -764,16 +784,20 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
         /* fatal */
         exit(2);
     }
-
+    
+    //获取配置
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 
     if (worker >= 0 && ccf->priority != 0) {
+         
+        //设置优先级
         if (setpriority(PRIO_PROCESS, 0, ccf->priority) == -1) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           "setpriority(%d) failed", ccf->priority);
         }
     }
 
+    //设置文件描述符限制
     if (ccf->rlimit_nofile != NGX_CONF_UNSET) {
         rlmt.rlim_cur = (rlim_t) ccf->rlimit_nofile;
         rlmt.rlim_max = (rlim_t) ccf->rlimit_nofile;
@@ -804,6 +828,7 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
             exit(2);
         }
 
+        //group 和 uid 设置
         if (initgroups(ccf->username, ccf->group) == -1) {
             ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
                           "initgroups(%s, %d) failed",
@@ -851,6 +876,7 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
     }
 
     if (worker >= 0) {
+        //CPU亲和性
         cpu_affinity = ngx_get_cpu_affinity(worker);
 
         if (cpu_affinity) {
@@ -897,6 +923,7 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
         ls[i].previous = NULL;
     }
 
+    //调用各个模块的 init_process 进行模块初始化
     for (i = 0; cycle->modules[i]; i++) {
         if (cycle->modules[i]->init_process) {
             if (cycle->modules[i]->init_process(cycle) == NGX_ERROR) {

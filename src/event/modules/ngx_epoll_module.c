@@ -327,6 +327,8 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
     epcf = ngx_event_get_conf(cycle->conf_ctx, ngx_epoll_module);
 
     if (ep == -1) {
+
+        // 创建一个 epoll 句柄
         ep = epoll_create(cycle->connection_n / 2);
 
         if (ep == -1) {
@@ -697,6 +699,7 @@ ngx_epoll_del_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags)
 }
 
 
+// ngx_add_conn，对于 epoll module 来说，它就是 ngx_epoll_add_connection 这个函数。
 static ngx_int_t
 ngx_epoll_add_connection(ngx_connection_t *c)
 {
@@ -779,7 +782,12 @@ ngx_epoll_notify(ngx_event_handler_pt handler)
 
 #endif
 
-
+// 调用 ngx_process_events 来处理各种网络和 timer 事件。
+// 对于 epoll 来说，这个函数就是对 ngx_epoll_process_events 的封装。
+//
+// 在 ngx_epoll_process_events 是调用 epoll_wait 等待各种事件的发生。
+// 如果没有 NGX_POST_EVENTS 标志，则直接回调 rev->handler 进行处理。
+// 使用了 accept_mutex 锁的话，先把这个事件保存起来，等后面合适的时机再去 accpet。
 static ngx_int_t
 ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
 {
@@ -898,6 +906,7 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
                 ngx_post_event(rev, queue);
 
             } else {
+                // 调用回调函数
                 rev->handler(rev);
             }
         }

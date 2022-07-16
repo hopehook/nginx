@@ -289,6 +289,7 @@ main(int argc, char *const *argv)
         return 1;
     }
 
+    // 1.1 ngx_init_cycle 中开启监听
     cycle = ngx_init_cycle(&init_cycle);
     if (cycle == NULL) {
         if (ngx_test_config) {
@@ -380,6 +381,7 @@ main(int argc, char *const *argv)
         ngx_single_process_cycle(cycle);
 
     } else {
+        // 1.2 启动主进程循环
         ngx_master_process_cycle(cycle);
     }
 

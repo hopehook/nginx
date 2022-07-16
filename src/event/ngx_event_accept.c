@@ -16,7 +16,14 @@ static void ngx_reorder_accept_events(ngx_listening_t *ls);
 #endif
 static void ngx_close_accepted_connection(ngx_connection_t *c);
 
-
+// 这个函数主要做了三件事。
+//   1.调用 accept 获取用户连接
+//   2.获取 connection 对象，其回调函数为 ngx_http_init_connection
+//   3.将新连接 socket 通过 epoll_ctl 添加到 epoll 中进行管理
+//
+// listen socket 上的读事件发生的时候，就意味着有用户连接就绪了。
+// 所以可以直接通过 accept 将其取出来。
+// 取出连接以后，再获取一个空闲的 connection 对象，通过 ngx_add_conn 将其添加到 epoll 中进行管理。
 void
 ngx_event_accept(ngx_event_t *ev)
 {
@@ -65,6 +72,7 @@ ngx_event_accept(ngx_event_t *ev)
             s = accept(lc->fd, &sa.sockaddr, &socklen);
         }
 #else
+        //接收建立好的连接
         s = accept(lc->fd, &sa.sockaddr, &socklen);
 #endif
 
@@ -139,6 +147,7 @@ ngx_event_accept(ngx_event_t *ev)
         ngx_accept_disabled = ngx_cycle->connection_n / 8
                               - ngx_cycle->free_connection_n;
 
+        // 3.1 获取 connection
         c = ngx_get_connection(s, ev->log);
 
         if (c == NULL) {
@@ -299,8 +308,9 @@ ngx_event_accept(ngx_event_t *ev)
 
         }
 #endif
-
+        
         if (ngx_add_conn && (ngx_event_flags & NGX_USE_EPOLL_EVENT) == 0) {
+            // 3.2 添加新连接
             if (ngx_add_conn(c) == NGX_ERROR) {
                 ngx_close_accepted_connection(c);
                 return;
